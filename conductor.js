@@ -159,6 +159,7 @@ const main = (() => {
                     params.$invoke = result.$fsm
                     params.$state = result.$state
                     params.$stack = result.$stack
+                    params.$cause = result.$cause
                 })
         }
 
@@ -173,9 +174,9 @@ const main = (() => {
         }
 
         // persist session state to redis
-        function persist($fsm, $state, $stack) {
+        function persist($fsm, $state, $stack, $cause) {
             // ensure using set-if-exists that the session has not been killed
-            return db.lsetAsync(sessionStateKey, -1, JSON.stringify({ $fsm, $state, $stack }))
+            return db.lsetAsync(sessionStateKey, -1, JSON.stringify({ $fsm, $state, $stack, $cause }))
                 .catch(() => gone(`Session ${session} has been killed`))
         }
 
@@ -201,6 +202,7 @@ const main = (() => {
 
             let state = resuming ? params.$state : (params.$state || fsm.Entry)
             const stack = params.$stack || []
+            const cause = params.$cause
 
             // wrap params if not a JSON object, branch to error handler if error
             function inspect() {
@@ -226,6 +228,7 @@ const main = (() => {
             delete params.$sessionId
             delete params.$state
             delete params.$stack
+            delete params.$cause
             delete params.$blocking
 
             // run function f on current stack
@@ -248,7 +251,12 @@ const main = (() => {
                 if (!state) {
                     console.log(`Entering final state`)
                     console.log(JSON.stringify(params))
-                    return record(params).then(() => blocking ? params : ({ $session: session }))
+                    return record(params).then(() => {
+                        if (cause) {
+                            console.log(`Returning from nested app`)
+                            return wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: { $sessionId: cause, $result: params } })
+                        }
+                    }).then(() => blocking ? params : ({ $session: session }))
                 }
 
                 console.log(`Entering ${state}`)
@@ -298,7 +306,7 @@ const main = (() => {
                         break
                     case 'Task':
                         if (typeof json.Action === 'string') { // invoke user action
-                            return persist(fsm, state, stack)
+                            return persist(fsm, state, stack, cause)
                                 .then(() => wsk.actions.invoke({ name: json.Action, params, blocking: notify })
                                     .catch(error => error.error && error.error.response ? error.error : badRequest(`Failed to invoke action ${json.Action}: ${encodeError(error).error}`)) // catch error reponses
                                     .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId)
@@ -306,6 +314,14 @@ const main = (() => {
                                         .then(activation => {
                                             if (notify) return wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: { $activationId: activation.activationId, $sessionId: session, $result: activation.response.result } })
                                         }).then(() => blocking ? getSessionResult() : { $session: session })))
+                        } else if (typeof json.App === 'string') { // invoke app
+                            params.$cause = session
+                            console.log(`Invoking nested app`)
+                            return persist(fsm, state, stack, cause)
+                                .then(() => wsk.actions.invoke({ name: json.App, params })
+                                    .catch(error => badRequest(`Failed to invoke app ${json.App}: ${encodeError(error).error}`))
+                                    .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
+                                    .then(() => blocking ? getSessionResult() : { $session: session }))
                         } else if (typeof json.Value !== 'undefined') { // value
                             params = JSON.parse(JSON.stringify(json.Value))
                             inspect()

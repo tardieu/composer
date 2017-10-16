@@ -90,6 +90,12 @@ class Composer {
         return this.sequence(...arguments)
     }
 
+    app(obj) {
+        if (typeof obj !== 'string') throw new ComposerError('Invalid app argument', app)
+        const Entry = { Type: 'Task', App: obj, id: {} }
+        return { Entry, States: [Entry], Exit: Entry }
+    }
+
     if(test, consequent, alternate) {
         if (test == null || consequent == null) throw new ComposerError('Missing arguments in composition', arguments)
         const id = {}
@@ -240,7 +246,7 @@ class Composer {
             if (typeof state.id.id === 'undefined') state.id.id = Count++
         })
         obj.States.forEach(state => {
-            const id = (state.Type === 'Task' ? state.Action && 'action' || state.Function && 'function' || state.Value && 'value' : state.Type.toLowerCase()) + '_' + state.id.id
+            const id = (state.Type === 'Task' ? state.Action && 'action' || state.Function && 'function' || state.Value && 'value' || state.App && 'app' : state.Type.toLowerCase()) + '_' + state.id.id
             States[id] = state
             state.id = id
             if (state === obj.Entry) Entry = id
