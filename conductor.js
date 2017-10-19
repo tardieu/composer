@@ -160,13 +160,15 @@ const main = (() => {
                     if (result.$join) {
                         return db.lpushAsync(sessionJoinKey, JSON.stringify(params)).then(n => {
                             if (n < result.$join) return { $session: session }
-                            return db.lrangeAsync(sessionJoinKey, 0, -1).then(results => {
-                                params = { results: results.map(JSON.parse) }
-                                params.$invoke = result.$fsm
-                                params.$state = result.$state
-                                params.$stack = result.$stack
-                                params.$cause = result.$cause
-                            })
+                            return db.lrangeAsync(sessionJoinKey, 0, -1)
+                                .then(results => db.delAsync(sessionJoinKey)
+                                    .then(() => {
+                                        params = { results: results.map(JSON.parse) }
+                                        params.$invoke = result.$fsm
+                                        params.$state = result.$state
+                                        params.$stack = result.$stack
+                                        params.$cause = result.$cause
+                                    }))
                         })
                     }
                     params.$invoke = result.$fsm
