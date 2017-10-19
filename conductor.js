@@ -124,6 +124,7 @@ const main = (() => {
         const sessionStateKey = `${apiKey}:session:live:${session}`
         const sessionResultKey = `${apiKey}:session:done:${session}`
         const sessionTraceKey = `${apiKey}:list:${session}`
+        const sessionJoinKey = `${apiKey}:join:${session}`
         const sessionsKey = `${apiKey}:all`
 
         // initialize redis instance
@@ -156,6 +157,18 @@ const main = (() => {
                 .then(() => getSessionState()) // obtain live session state
                 .then(result => {
                     if (!isObject(result.$fsm)) return badRequest(`State of session ${session} is not well formed`)
+                    if (result.$join) {
+                        return db.lpushAsync(sessionJoinKey, JSON.stringify(params)).then(n => {
+                            if (n < result.$join) return { $session: session }
+                            return db.lrangeAsync(sessionJoinKey, 0, -1).then(results => {
+                                params = { results: results.map(JSON.parse) }
+                                params.$invoke = result.$fsm
+                                params.$state = result.$state
+                                params.$stack = result.$stack
+                                params.$cause = result.$cause
+                            })
+                        })
+                    }
                     params.$invoke = result.$fsm
                     params.$state = result.$state
                     params.$stack = result.$stack
@@ -171,12 +184,13 @@ const main = (() => {
                 .then(() => db.lpushAsync(sessionStateKey, JSON.stringify({})))
                 .then(() => db.ltrimAsync(sessionStateKey, -1, -1))
                 .then(() => db.expireAsync(sessionStateKey, expiration))
+                .then(() => false)
         }
 
         // persist session state to redis
-        function persist($fsm, $state, $stack, $cause) {
+        function persist($fsm, $state, $stack, $cause, $join) {
             // ensure using set-if-exists that the session has not been killed
-            return db.lsetAsync(sessionStateKey, -1, JSON.stringify({ $fsm, $state, $stack, $cause }))
+            return db.lsetAsync(sessionStateKey, -1, JSON.stringify({ $fsm, $state, $stack, $cause, $join }))
                 .catch(() => gone(`Session ${session} has been killed`))
         }
 
@@ -191,7 +205,7 @@ const main = (() => {
         }
 
         // retrieve session state if resuming or initialize session state if not, step, push error in step to db if any
-        return (resuming ? resume() : start()).then(() => Promise.resolve().then(step).catch(error => record(encodeError(error)).then(() => Promise.reject(error))))
+        return (resuming ? resume() : start()).then(stop => stop || Promise.resolve().then(step).catch(error => record(encodeError(error)).then(() => Promise.reject(error))))
 
         // one step of execution 
         function step() {
@@ -313,15 +327,24 @@ const main = (() => {
                                         .then(() => activation.response ? activation : new Promise(resolve => poll(activation.activationId, resolve))) // poll if timeout
                                         .then(activation => {
                                             if (notify) return wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: { $activationId: activation.activationId, $sessionId: session, $result: activation.response.result } })
-                                        }).then(() => blocking ? getSessionResult() : { $session: session })))
+                                        }))).then(() => blocking ? getSessionResult() : { $session: session })
+                        } else if (Array.isArray(json.App)) { // invoke apps
+                            params.$cause = session
+                            console.log(`Invoking nested apps`)
+                            return json.App.reduce((acc, app) =>
+                                acc.then(() => wsk.actions.invoke({ name: app, params })
+                                    .catch(error => badRequest(`Failed to invoke app ${app}: ${encodeError(error).error}`)))
+                                    .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
+                                , persist(fsm, state, stack, cause, json.App.length))
+                                .then(() => blocking ? getSessionResult() : { $session: session })
                         } else if (typeof json.App === 'string') { // invoke app
                             params.$cause = session
                             console.log(`Invoking nested app`)
                             return persist(fsm, state, stack, cause)
                                 .then(() => wsk.actions.invoke({ name: json.App, params })
-                                    .catch(error => badRequest(`Failed to invoke app ${json.App}: ${encodeError(error).error}`))
-                                    .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
-                                    .then(() => blocking ? getSessionResult() : { $session: session }))
+                                    .catch(error => badRequest(`Failed to invoke app ${json.App}: ${encodeError(error).error}`)))
+                                .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
+                                .then(() => blocking ? getSessionResult() : { $session: session })
                         } else if (typeof json.Value !== 'undefined') { // value
                             params = JSON.parse(JSON.stringify(json.Value))
                             inspect()

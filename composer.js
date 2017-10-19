@@ -96,6 +96,11 @@ class Composer {
         return { Entry, States: [Entry], Exit: Entry }
     }
 
+    parallel() {
+        const Entry = { Type: 'Task', App: Array.prototype.slice.call(arguments), id: {} }
+        return { Entry, States: [Entry], Exit: Entry }
+    }
+
     if(test, consequent, alternate) {
         if (test == null || consequent == null) throw new ComposerError('Missing arguments in composition', arguments)
         const id = {}
