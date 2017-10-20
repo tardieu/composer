@@ -90,14 +90,9 @@ class Composer {
         return this.sequence(...arguments)
     }
 
-    app(obj) {
-        if (typeof obj !== 'string') throw new ComposerError('Invalid app argument', app)
-        const Entry = { Type: 'Task', App: obj, id: {} }
-        return { Entry, States: [Entry], Exit: Entry }
-    }
-
     parallel() {
-        const Entry = { Type: 'Task', App: Array.prototype.slice.call(arguments), id: {} }
+        if (arguments.length === 0) throw new ComposerError('Missing arguments in parallel composition', arguments)
+        const Entry = { Type: 'Task', Parallel: Array.prototype.map.call(arguments, x => this.compile(this.task(x)), this), id: {} }
         return { Entry, States: [Entry], Exit: Entry }
     }
 
@@ -251,7 +246,7 @@ class Composer {
             if (typeof state.id.id === 'undefined') state.id.id = Count++
         })
         obj.States.forEach(state => {
-            const id = (state.Type === 'Task' ? state.Action && 'action' || state.Function && 'function' || state.Value && 'value' || state.App && 'app' : state.Type.toLowerCase()) + '_' + state.id.id
+            const id = (state.Type === 'Task' ? state.Action && 'action' || state.Function && 'function' || state.Value && 'value' || state.Parallel && 'parallel' : state.Type.toLowerCase()) + '_' + state.id.id
             States[id] = state
             state.id = id
             if (state === obj.Entry) Entry = id

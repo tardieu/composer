@@ -269,7 +269,7 @@ const main = (() => {
                     console.log(JSON.stringify(params))
                     return record(params).then(() => {
                         if (cause) {
-                            console.log(`Returning from nested app`)
+                            console.log(`Returning`)
                             return wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: { $sessionId: cause, $result: params } })
                         }
                     }).then(() => blocking ? params : ({ $session: session }))
@@ -321,7 +321,14 @@ const main = (() => {
                         if (typeof stack.shift().let !== 'object') return badRequest(`The state named ${current} of type End popped an unexpected stack element`)
                         break
                     case 'Task':
-                        if (typeof json.Action === 'string') { // invoke user action
+                        if (typeof json.Action === 'string' && json.Action.substr(json.Action.length - 4) === '.app') { // invoke app
+                            params.$cause = session
+                            return persist(fsm, state, stack, cause)
+                                .then(() => wsk.actions.invoke({ name: json.Action, params })
+                                    .catch(error => badRequest(`Failed to invoke app ${json.Action}: ${encodeError(error).error}`)))
+                                .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
+                                .then(() => blocking ? getSessionResult() : { $session: session })
+                        } else if (typeof json.Action === 'string') { // invoke user action
                             return persist(fsm, state, stack, cause)
                                 .then(() => wsk.actions.invoke({ name: json.Action, params, blocking: notify })
                                     .catch(error => error.error && error.error.response ? error.error : badRequest(`Failed to invoke action ${json.Action}: ${encodeError(error).error}`)) // catch error reponses
@@ -330,22 +337,14 @@ const main = (() => {
                                         .then(activation => {
                                             if (notify) return wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: { $activationId: activation.activationId, $sessionId: session, $result: activation.response.result } })
                                         }))).then(() => blocking ? getSessionResult() : { $session: session })
-                        } else if (Array.isArray(json.App)) { // invoke apps
+                        } else if (Array.isArray(json.Parallel)) { // invoke apps
                             params.$cause = session
-                            console.log(`Invoking nested apps`)
-                            return json.App.reduce((acc, app) =>
-                                acc.then(() => wsk.actions.invoke({ name: app, params })
-                                    .catch(error => badRequest(`Failed to invoke app ${app}: ${encodeError(error).error}`)))
+                            console.log(`Invoking parallel apps`)
+                            return json.Parallel.reduce((acc, $invoke) =>
+                                acc.then(() => wsk.actions.invoke({ name: process.env.__OW_ACTION_NAME, params: Object.assign({ $invoke }, params) })
+                                    .catch(error => badRequest(`Failed to invoke nested app: ${encodeError(error).error}`)))
                                     .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
-                                , persist(fsm, state, stack, cause, json.App.length))
-                                .then(() => blocking ? getSessionResult() : { $session: session })
-                        } else if (typeof json.App === 'string') { // invoke app
-                            params.$cause = session
-                            console.log(`Invoking nested app`)
-                            return persist(fsm, state, stack, cause)
-                                .then(() => wsk.actions.invoke({ name: json.App, params })
-                                    .catch(error => badRequest(`Failed to invoke app ${json.App}: ${encodeError(error).error}`)))
-                                .then(activation => db.rpushxAsync(sessionTraceKey, activation.activationId))
+                                , persist(fsm, state, stack, cause, json.Parallel.length))
                                 .then(() => blocking ? getSessionResult() : { $session: session })
                         } else if (typeof json.Value !== 'undefined') { // value
                             params = JSON.parse(JSON.stringify(json.Value))
