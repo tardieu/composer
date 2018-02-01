@@ -24,6 +24,7 @@ const path = require('path')
 const util = require('util')
 const clone = require('clone')
 const openwhisk = require('openwhisk')
+const babel = require('babel-core')
 
 class ComposerError extends Error {
     constructor(message, cause) {
@@ -303,6 +304,17 @@ class Composer {
         return clone(actions).reduce(
             (promise, action) => promise.then(i => this.wsk.actions.update(action).then(_ => i + 1, err => { console.error(err); return i })), Promise.resolve(0))
     }
+
+    transform(composition) {
+        if (arguments.length > 1) throw new ComposerError('Too many arguments')
+        if (typeof composition === 'function') {
+            const code = `${composition}`
+            if (code.indexOf('[native code]') !== -1) throw new ComposerError('Cannot transform native function', composition)
+            composition = code
+        }
+        if (typeof composition !== 'string') throw new ComposerError('Invalid argument', composition)
+        return babel.transform(composition, { plugins }).code
+    }
 }
 
 module.exports = options => new Composer(options)
@@ -454,6 +466,69 @@ function main(params) {
                     break
                 default:
                     return badRequest(`State ${current} has an unknown type`)
+            }
+        }
+    }
+}
+
+// babel plugin
+
+function plugins({ types: t }) {
+    const abort = node => { throw new Error(`Unsupported ${node.type} at position ${JSON.stringify(node.loc)}`) }
+
+    const exp = node => node ? node.expression || node.body && node.body[0] && node.body[0].expression || abort(node) : t.nullLiteral()
+
+    const call = (path, name, args) => path.replaceWith(t.expressionStatement(t.callExpression(t.identifier(name), args)))
+
+    const visitor = {
+        Expression: { enter(path) { path.skip() } },
+
+        ExpressionStatement: { enter(path) { path.skip() } },
+
+        Statement: { exit(path) { abort(path.node) } }, // abort for all statements other than the following
+
+        EmptyStatement: { exit(path) { path.replaceWith(t.nullLiteral()) } },
+
+        IfStatement: { exit(path) { call(path, 'composer.if', [path.node.test, exp(path.node.consequent), exp(path.node.alternate)]) } },
+
+        WhileStatement: { exit(path) { call(path, 'composer.while', [path.node.test, exp(path.node.body)]) } },
+
+        VariableDeclaration: {
+            exit(path) {
+                call(path, 'composer.let', [t.ObjectExpression(path.node.declarations.map(decl => t.ObjectProperty(t.identifier(decl.id.name), decl.init)))])
+            }
+        },
+
+        BlockStatement: {
+            exit(path) {
+                path.unshiftContainer('body', path.node.directives.map(directive => t.expressionStatement(t.stringLiteral(directive.value.value))))
+                const args = path.node.body.reduceRight((acc, cur) => {
+                    const expression = exp(cur)
+                    if (expression.callee && expression.callee.name === 'composer.let') {
+                        expression.arguments.push(...acc)
+                        return [expression]
+                    } else {
+                        acc.unshift(expression)
+                        return acc
+                    }
+                }, [])
+                path.replaceWith(t.blockStatement([t.expressionStatement(t.callExpression(t.identifier('composer.seq'), args))]))
+                path.skip()
+            }
+        }
+    }
+
+    return {
+        visitor: {
+            Expression: { enter(path) { abort(path.node) } },
+            Statement: { enter(path) { abort(path.node) } },
+
+            Function: {
+                enter(path) {
+                    path.traverse(visitor)
+                    path.replaceWith(path.node.body.body[0].expression)
+                    path.stop()
+                }
             }
         }
     }
