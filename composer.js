@@ -46,7 +46,8 @@ function main() {
         retry: { args: [{ _: 'count', type: 'number' }], components: true, since: '0.4.0' },
         value: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
         literal: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
-        function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' }
+        function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
+        parallel: { components: 'named', since: '0.6.0' },
     }
 
     // error class
@@ -354,7 +355,11 @@ function main() {
                     }
                 }
                 if (combinator.components) {
-                    composition.components = Array.prototype.slice.call(arguments, skip).map(obj => composer.task(obj))
+                    composition.components = Array.prototype.slice.call(arguments, skip).map(obj => {
+                        const task = composer.task(obj)
+                        if (combinator.components === 'named' && task.name === undefined) throw new ComposerError('Invalid argument', obj)
+                        return task
+                    })
                 }
                 return composition
             }
@@ -551,6 +556,10 @@ function main() {
                 fsm.push(...alternate)
                 return fsm
             },
+
+            parallel(node) {
+                return [{ type: 'parallel', components: node.components.map(obj => obj.name), path: node.path }]
+            }
         }
 
         const openwhisk = require('openwhisk')
@@ -611,6 +620,21 @@ function main() {
             },
 
             pass({ p, node, index }) {
+            },
+
+            parallel({ p, node, index }) {
+                if (!wsk) wsk = openwhisk({ ignore_certs: true })
+                return Promise.all(node.components.map(name => wsk.actions.invoke({ name, params: p.params, blocking: true })))
+                    .then(activations => activations.map(activation => activation.response.result),
+                        error => {
+                            console.error(error)
+                            return { error: `An exception was caught at state ${index} (see log for details)` }
+                        })
+                    .then(result => {
+                        p.params = result
+                        inspect(p)
+                        return step(p)
+                    })
             },
         }
 
