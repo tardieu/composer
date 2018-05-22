@@ -21,7 +21,6 @@ describe('composer', function () {
             .then(() => define({ name: 'isEven', action: 'function main({n}) { return { value: n % 2 == 0 } }' }))
     })
 
-
     describe('blocking invocations', function () {
         describe('actions', function () {
             it('action must return true', function () {
@@ -582,6 +581,15 @@ describe('composer', function () {
                     } catch (error) {
                         assert.ok(error.message.startsWith('Invalid argument'))
                     }
+                })
+            })
+            describe('parallel constructs', function () {
+                it('parallel', function () {
+                    return invoke(composer.parallel('DivideByTwo', 'TripleAndIncrement'), { n: 4 }).then(activation => assert.deepEqual(activation.response.result, { value: [{ n: 2 }, { n: 13 }] }))
+                })
+
+                it('map', function () {
+                    return invoke(composer.map('DivideByTwo', 'TripleAndIncrement'), { value: [{ n: 4 }, { n: 3 }] }).then(activation => assert.deepEqual(activation.response.result, { value: [{ n: 2 }, { n: 10 }] }))
                 })
             })
         })

@@ -48,6 +48,7 @@ function main() {
         literal: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
         function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
         parallel: { components: 'named', since: '0.6.0' },
+        map: { components: 'named', since: '0.6.0' },
     }
 
     // error class
@@ -231,6 +232,10 @@ function main() {
                     this.finally(({ params }) => params, this.mask(this.retain_catch(...composition.components))),
                     ({ result }) => result.error !== undefined && count-- > 0),
                 ({ result }) => result)
+        },
+
+        _map(composition) {
+            return new Composition({ type: 'parallel', components: composition.components, map: true })
         },
 
         combinators: {},
@@ -558,7 +563,7 @@ function main() {
             },
 
             parallel(node) {
-                return [{ type: 'parallel', components: node.components.map(obj => obj.name), path: node.path }]
+                return [{ type: 'parallel', components: node.components.map(obj => obj.name), map: node.map, path: node.path }]
             }
         }
 
@@ -624,7 +629,10 @@ function main() {
 
             parallel({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
-                return Promise.all(node.components.map(name => wsk.actions.invoke({ name, params: p.params, blocking: true })))
+                return Promise.all(node.components.map((name, index) => {
+                    const params = node.map ? Object.assign({}, p.params, { value: undefined }, p.params.value[index]) : p.params
+                    return wsk.actions.invoke({ name, params, blocking: true })
+                }))
                     .then(activations => activations.map(activation => activation.response.result),
                         error => {
                             console.error(error)
