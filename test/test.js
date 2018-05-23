@@ -593,12 +593,12 @@ describe('composer', function () {
                     return invoke(composer.map('DivideByTwo'), { value: [{ n: 4 }, { n: 12 }] }).then(activation => assert.deepEqual(activation.response.result, { value: [{ n: 2 }, { n: 6 }] }))
                 })
 
-                it('fork', function () {
-                    return invoke(composer.fork('DivideByTwo', 'TripleAndIncrement'), { n: 4 }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
+                it('parallel with one async task', function () {
+                    return invoke(composer.parallel(composer.action('DivideByTwo', { async: true }), 'TripleAndIncrement'), { n: 4 }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
                 })
 
-                it('split', function () {
-                    return invoke(composer.split('DivideByTwo'), { value: [{ n: 4 }, { n: 12 }] }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
+                it('map with async task', function () {
+                    return invoke(composer.map(composer.action('DivideByTwo', { async: true })), { value: [{ n: 4 }, { n: 12 }] }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
                 })
             })
         })

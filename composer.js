@@ -49,8 +49,6 @@ function main() {
         function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
         parallel: { components: { named: true }, since: '0.6.0' },
         map: { args: [{ _: 'body', named: true }], since: '0.6.0' },
-        fork: { components: { named: true }, since: '0.6.0' },
-        split: { args: [{ _: 'body', named: true }], since: '0.6.0' },
     }
 
     // error class
@@ -234,14 +232,6 @@ function main() {
                     this.finally(({ params }) => params, this.mask(this.retain_catch(...composition.components))),
                     ({ result }) => result.error !== undefined && count-- > 0),
                 ({ result }) => result)
-        },
-
-        _fork(composition) {
-            return new Composition({ type: 'parallel', components: composition.components, async: true })
-        },
-
-        _split(composition) {
-            return new Composition({ type: 'map', body: composition.body, async: true })
         },
 
         combinators: {},
@@ -570,11 +560,11 @@ function main() {
             },
 
             parallel(node) {
-                return [{ type: 'parallel', components: node.components.map(obj => obj.name), async: node.async, path: node.path }]
+                return [{ type: 'parallel', components: node.components, path: node.path }]
             },
 
             map(node) {
-                return [{ type: 'map', name: node.body.name, async: node.async, path: node.path }]
+                return [{ type: 'map', body: node.body, path: node.path }]
             },
         }
 
@@ -640,12 +630,13 @@ function main() {
 
             parallel({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
-                return Promise.all(node.components.map((name, index) => wsk.actions.invoke({ name, params: p.params, blocking: !node.async })))
-                    .then(activations => node.async ? activations : activations.map(activation => activation.response.result),
-                        error => {
-                            console.error(error)
-                            return { error: `An exception was caught at state ${index} (see log for details)` }
-                        })
+                return Promise.all(node.components.map((task, index) =>
+                    wsk.actions.invoke({ name: task.name, params: p.params, blocking: !task.async })
+                        .then(activation => task.async ? activation : activation.response.result)))
+                    .catch(error => {
+                        console.error(error)
+                        return { error: `An exception was caught at state ${index} (see log for details)` }
+                    })
                     .then(result => {
                         p.params = result
                         inspect(p)
@@ -655,14 +646,13 @@ function main() {
 
             map({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
-                return Promise.all(p.params.value.map((value, index) => {
-                    return wsk.actions.invoke({ name: node.name, params: Object.assign(p.params, { value: undefined }, value), blocking: !node.async })
-                }))
-                    .then(activations => node.async ? activations : activations.map(activation => activation.response.result),
-                        error => {
-                            console.error(error)
-                            return { error: `An exception was caught at state ${index} (see log for details)` }
-                        })
+                return Promise.all(p.params.value.map((value, index) =>
+                    wsk.actions.invoke({ name: node.body.name, params: Object.assign(p.params, { value: undefined }, value), blocking: !node.body.async })
+                        .then(activation => node.body.async ? activation : activation.response.result)))
+                    .catch(error => {
+                        console.error(error)
+                        return { error: `An exception was caught at state ${index} (see log for details)` }
+                    })
                     .then(result => {
                         p.params = result
                         inspect(p)
