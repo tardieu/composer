@@ -47,10 +47,10 @@ function main() {
         value: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
         literal: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
         function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
-        parallel: { components: 'named', since: '0.6.0' },
-        map: { components: 'named', since: '0.6.0' },
-        fork: { components: 'named', since: '0.6.0' },
-        split: { components: 'named', since: '0.6.0' },
+        parallel: { components: { named: true }, since: '0.6.0' },
+        map: { args: [{ _: 'body', named: true }], since: '0.6.0' },
+        fork: { components: { named: true }, since: '0.6.0' },
+        split: { args: [{ _: 'body', named: true }], since: '0.6.0' },
     }
 
     // error class
@@ -236,16 +236,12 @@ function main() {
                 ({ result }) => result)
         },
 
-        _map(composition) {
-            return new Composition({ type: 'parallel', components: composition.components, map: true })
-        },
-
         _fork(composition) {
             return new Composition({ type: 'parallel', components: composition.components, async: true })
         },
 
         _split(composition) {
-            return new Composition({ type: 'parallel', components: composition.components, map: true, async: true })
+            return new Composition({ type: 'map', body: composition.body, async: true })
         },
 
         combinators: {},
@@ -357,6 +353,7 @@ function main() {
                     switch (arg.type) {
                         case undefined:
                             composition[arg._] = this.task(arg.optional ? argument || null : argument)
+                            if (arg.named && composition[arg._].name === undefined) throw new ComposerError('Invalid argument', argument)
                             continue
                         case 'value':
                             if (typeof argument === 'function') throw new ComposerError('Invalid argument', argument)
@@ -372,7 +369,7 @@ function main() {
                 if (combinator.components) {
                     composition.components = Array.prototype.slice.call(arguments, skip).map(obj => {
                         const task = composer.task(obj)
-                        if (combinator.components === 'named' && task.name === undefined) throw new ComposerError('Invalid argument', obj)
+                        if (combinator.components.named && task.name === undefined) throw new ComposerError('Invalid argument', obj)
                         return task
                     })
                 }
@@ -573,7 +570,11 @@ function main() {
             },
 
             parallel(node) {
-                return [{ type: 'parallel', components: node.components.map(obj => obj.name), map: node.map, async: node.async, path: node.path }]
+                return [{ type: 'parallel', components: node.components.map(obj => obj.name), async: node.async, path: node.path }]
+            },
+
+            map(node) {
+                return [{ type: 'map', name: node.body.name, async: node.async, path: node.path }]
             },
         }
 
@@ -639,9 +640,23 @@ function main() {
 
             parallel({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
-                return Promise.all(node.components.map((name, index) => {
-                    const params = node.map ? Object.assign({}, p.params, { value: undefined }, p.params.value[index]) : p.params
-                    return wsk.actions.invoke({ name, params, blocking: !node.async })
+                return Promise.all(node.components.map((name, index) => wsk.actions.invoke({ name, params: p.params, blocking: !node.async })))
+                    .then(activations => node.async ? activations : activations.map(activation => activation.response.result),
+                        error => {
+                            console.error(error)
+                            return { error: `An exception was caught at state ${index} (see log for details)` }
+                        })
+                    .then(result => {
+                        p.params = result
+                        inspect(p)
+                        return step(p)
+                    })
+            },
+
+            map({ p, node, index }) {
+                if (!wsk) wsk = openwhisk({ ignore_certs: true })
+                return Promise.all(p.params.value.map((value, index) => {
+                    return wsk.actions.invoke({ name: node.name, params: Object.assign(p.params, { value: undefined }, value), blocking: !node.async })
                 }))
                     .then(activations => node.async ? activations : activations.map(activation => activation.response.result),
                         error => {

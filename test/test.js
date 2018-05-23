@@ -590,7 +590,7 @@ describe('composer', function () {
                 })
 
                 it('map', function () {
-                    return invoke(composer.map('DivideByTwo', 'TripleAndIncrement'), { value: [{ n: 4 }, { n: 3 }] }).then(activation => assert.deepEqual(activation.response.result, { value: [{ n: 2 }, { n: 10 }] }))
+                    return invoke(composer.map('DivideByTwo'), { value: [{ n: 4 }, { n: 12 }] }).then(activation => assert.deepEqual(activation.response.result, { value: [{ n: 2 }, { n: 6 }] }))
                 })
 
                 it('fork', function () {
@@ -598,7 +598,7 @@ describe('composer', function () {
                 })
 
                 it('split', function () {
-                    return invoke(composer.split('DivideByTwo', 'TripleAndIncrement'), { value: [{ n: 4 }, { n: 3 }] }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
+                    return invoke(composer.split('DivideByTwo'), { value: [{ n: 4 }, { n: 12 }] }).then(activation => assert.ok(activation.response.result.value.length === 2 && activation.response.result.value[0].activationId))
                 })
             })
         })
