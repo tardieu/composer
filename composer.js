@@ -399,7 +399,7 @@ function main() {
             deploy(composition, combinators) {
                 if (arguments.length > 2) throw new ComposerError('Too many arguments')
                 if (!(composition instanceof Composition)) throw new ComposerError('Invalid argument', composition)
-                if (composition.type !== 'composition') throw new ComposerError('Cannot deploy anonymous composition')
+                if (composition.name === undefined) throw new ComposerError('Cannot deploy anonymous entity')
                 const obj = this.composer.encode(composition, combinators)
                 return obj.actions.reduce((promise, action) => promise.then(() => this.actions.delete(action).catch(() => { }))
                     .then(() => this.actions.update(action)), Promise.resolve())
