@@ -49,6 +49,8 @@ function main() {
         function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
         parallel: { components: 'named', since: '0.6.0' },
         map: { components: 'named', since: '0.6.0' },
+        fork: { components: 'named', since: '0.6.0' },
+        split: { components: 'named', since: '0.6.0' },
     }
 
     // error class
@@ -236,6 +238,14 @@ function main() {
 
         _map(composition) {
             return new Composition({ type: 'parallel', components: composition.components, map: true })
+        },
+
+        _fork(composition) {
+            return new Composition({ type: 'parallel', components: composition.components, async: true })
+        },
+
+        _split(composition) {
+            return new Composition({ type: 'parallel', components: composition.components, map: true, async: true })
         },
 
         combinators: {},
@@ -563,8 +573,8 @@ function main() {
             },
 
             parallel(node) {
-                return [{ type: 'parallel', components: node.components.map(obj => obj.name), map: node.map, path: node.path }]
-            }
+                return [{ type: 'parallel', components: node.components.map(obj => obj.name), map: node.map, async: node.async, path: node.path }]
+            },
         }
 
         const openwhisk = require('openwhisk')
@@ -631,9 +641,9 @@ function main() {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
                 return Promise.all(node.components.map((name, index) => {
                     const params = node.map ? Object.assign({}, p.params, { value: undefined }, p.params.value[index]) : p.params
-                    return wsk.actions.invoke({ name, params, blocking: true })
+                    return wsk.actions.invoke({ name, params, blocking: !node.async })
                 }))
-                    .then(activations => activations.map(activation => activation.response.result),
+                    .then(activations => node.async ? activations : activations.map(activation => activation.response.result),
                         error => {
                             console.error(error)
                             return { error: `An exception was caught at state ${index} (see log for details)` }
