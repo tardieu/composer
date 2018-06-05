@@ -630,8 +630,10 @@ function main() {
 
             parallel({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
+                const count = node.components.length
                 return Promise.all(node.components.map((task, index) =>
                     wsk.actions.invoke({ name: task.name, params: p.params, blocking: !task.async })
+                        .then(activation => { console.log(`Spawning ${index} of ${count}: ${activation.activationId}`); return activation })
                         .then(activation => task.async ? activation : activation.response.result)))
                     .catch(error => {
                         console.error(error)
@@ -646,8 +648,10 @@ function main() {
 
             map({ p, node, index }) {
                 if (!wsk) wsk = openwhisk({ ignore_certs: true })
+                const count = p.params.value.length
                 return Promise.all(p.params.value.map((value, index) =>
                     wsk.actions.invoke({ name: node.body.name, params: Object.assign(p.params, { value: undefined }, value), blocking: !node.body.async })
+                        .then(activation => { console.log(`Spawning ${index} of ${count}: ${activation.activationId}`); return activation })
                         .then(activation => node.body.async ? activation : activation.response.result)))
                     .catch(error => {
                         console.error(error)
