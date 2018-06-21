@@ -10,10 +10,10 @@ const argv = minimist(process.argv.slice(2), {
     boolean: ['insecure', 'encode', 'json', 'version', 'quiet'],
     alias: { auth: 'u', insecure: 'i', version: 'v' }
 })
-const { util } = require(argv.composer || '../composer')
+let util
 
 if (argv.version) {
-    console.log(util.version)
+    console.log(require('../package.json').version)
     return
 }
 
@@ -47,6 +47,7 @@ try {
     const filename = argv._[0]
     let composition
     try {
+        util = require(require.resolve(argv.composer || '@ibm-functions/composer', require.resolve.paths(path.resolve(filename)))).util
         composition = util.deserialize(require(path.resolve(filename)))
         if (typeof argv.lower === 'string') composition = util.lower(composition, argv.lower || [])
     } catch (error) {
