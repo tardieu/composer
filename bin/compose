@@ -47,8 +47,11 @@ try {
     const filename = argv._[0]
     let composition
     try {
-        util = require(require.resolve(argv.composer || '@ibm-functions/composer', require.resolve.paths(path.resolve(filename)))).util
-        composition = util.deserialize(require(path.resolve(filename)))
+        composition = require(path.resolve(filename))
+        // reuse composer object or load using composition search path
+        util = composition.constructor && composition.constructor.name === 'Composition' && composition.constructor.composer.util ||
+            require(require.resolve(argv.composer || '@ibm-functions/composer', require.resolve.paths(path.resolve(filename)))).util
+        composition = util.deserialize(composition)
         if (typeof argv.lower === 'string') composition = util.lower(composition, argv.lower || [])
     } catch (error) {
         console.error('Bad composition')

@@ -370,6 +370,8 @@ function main() {
         }
     }
 
+    Composition.composer = composer
+
     // derive combinator methods from combinator table
     function init(combinators) {
         Object.assign(composer.util.combinators, combinators)
