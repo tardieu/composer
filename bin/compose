@@ -10,10 +10,9 @@ const argv = minimist(process.argv.slice(2), {
     boolean: ['insecure', 'encode', 'json', 'version', 'quiet'],
     alias: { auth: 'u', insecure: 'i', version: 'v' }
 })
-let { util } = require(argv.composer || '../composer')
 
 if (argv.version) {
-    console.log(util.version)
+    console.log(require('../package.json').version)
     return
 }
 
@@ -47,11 +46,13 @@ if (argv._.length !== 1 || count > 1 || argv.deploy === '' || argv.entity === ''
 try {
     const filename = argv._[0]
     let composition
+    let util
     try {
         composition = require(path.resolve(filename))
         if (composition.constructor && composition.constructor.name === 'Composition') {
             util = composition.constructor.composer.util
         } else {
+            util = require(argv.composer || '../composer').util
             composition = util.deserialize(composition)
         }
         if (typeof argv.lower === 'string') composition = util.lower(composition, argv.lower || [])
