@@ -436,6 +436,7 @@ composer.util.declare({
     literal: { args: [{ _: 'value', type: 'value' }], since: '0.4.0' },
     function: { args: [{ _: 'function', type: 'object' }], since: '0.4.0' },
     async: { args: [{ _: 'body' }], since: '0.6.0' },
+    dynamic: { since: '0.7.0' },
 })
 
 // management class for compositions
@@ -479,6 +480,10 @@ function main() {
 
         action(node) {
             return [{ type: 'action', name: node.name, path: node.path }]
+        },
+
+        dynamic(node) {
+            return [{ type: 'dynamic', path: node.path }]
         },
 
         async(node) {
@@ -564,6 +569,10 @@ function main() {
 
         action({ p, node, index }) {
             return { action: node.name, params: p.params, state: { $resume: p.s } }
+        },
+
+        dynamic({ p, node, index }) {
+            return { action: p.params.action, params: p.params.params, state: { $resume: p.s } }
         },
 
         function({ p, node, index }) {
